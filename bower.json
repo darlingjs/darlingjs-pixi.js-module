@@ -1,0 +1,24 @@
+{
+  "name": "darlingjs-pixijs",
+  "version": "0.7.0",
+  "main": [
+    "./pixiAdapter.js"
+  ],
+  "description": "darlingjs pixi.js adapter module",
+  "keywords": [
+    "renderer",
+    "webgl",
+    "canvas",
+    "darlingjs"
+  ],
+  "ignore": [
+    ".jshintrc",
+    "**/*.txt"
+  ],
+  "dependencies": {},
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:darlingjs/bower-physics-module.git"
+  }
+}
