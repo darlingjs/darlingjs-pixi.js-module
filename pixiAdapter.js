@@ -7,8 +7,10 @@
  * Systems:
  * ngPixijsSpriteFactory - use for building Pixijs Sprite from entity
  * ngPixijsStage - create Pixijs Stage, connect it with DOM
- * ngPixijsUpdateCycle - basic update cycle
+ * ngPixijsPositionUpdateCycle - basic update cycle
  * ngPixijsViewPortUpdateCycle - update cycle with applying of ViewPort
+ *
+ * Uses Promises/A - Q.js
  *
  */
 (function(darlingjs, darlingutil) {
@@ -98,10 +100,28 @@
         dy: 0.0
     });
 
+    /**
+     * Marker for temporary hide some sprite
+     */
+    m.$c('ngHide');
+
+    /**
+     * Marker that visualization need to fit to size
+     */
+    m.$c('ngBindViewToSize', {
+        autoRemove: false
+    });
+
+    /**
+     * Main Factory System of Pixijs Adapter. It:
+     * * gets sprite desc (name, spriteSheetUrl) from ngSprite;
+     * * loads it;
+     * * and creates component ngPixijsSprite;
+     */
     m.$s('ngPixijsSpriteFactory', {
         $require: ['ngSprite'],
 
-        $addEntity: ['ngPixijsStage', 'ngPixijsStaticZ', '$entity', 'ngResourceLoader', function(ngPixijsStage, ngPixijsStaticZ, $entity, ngResourceLoader) {
+        $addEntity: ['ngPixijsStage', 'ngPixijsStaticZ', '$entity', 'ngResourceLoader', 'ngPixijsPositionUpdateCycle', function(ngPixijsStage, ngPixijsStaticZ, $entity, ngResourceLoader, ngPixijsPositionUpdateCycle) {
             var state = $entity.ngSprite;
             if (state.spriteSheetUrl) {
                 if (isLoaded(state.spriteSheetUrl)) {
@@ -122,8 +142,14 @@
                 buildSprite(state, $entity.ng2DSize);
                 fitToSize(state, $entity.ng2DSize);
                 //hide sprite before update phase
-                state._sprite.position.x = -1048576;
-                state._sprite.position.y = -1048576;
+
+                if (ngPixijsPositionUpdateCycle) {
+                    state._sprite.position.x = -1048576;
+                    state._sprite.position.y = -1048576;
+                } else if ($entity.ng2D){
+                    state._sprite.position.x = $entity.ng2D.x;
+                    state._sprite.position.y = $entity.ng2D.y;
+                }
                 if (state.layerName) {
                     ngPixijsStaticZ.addChildAt(state.layerName, state._sprite);
                 } else {
@@ -204,10 +230,39 @@
         }
     });
 
-    m.$s('ngPixijsUpdateCycle', {
+    /**
+     * Update sprite position from ng2D
+     */
+    m.$s('ngPixijsPositionUpdateCycle', {
         $require: ['ng2D', 'ngPixijsSprite'],
 
-        $removeEntity: ['ngPixijsStage', '$entity', function(ngPixijsStage, $entity) {
+        $removeEntity: ['$entity', function($entity) {
+            $entity.ngPixijsSprite.sprite.visible = true;
+            $entity.ngPixijsSprite.sprite = null;
+        }],
+
+        $update: ['$entity', function($entity) {
+            var state = $entity.ngPixijsSprite;
+
+            var ng2D = $entity.ng2D;
+            var pos = state.sprite.position;
+
+            pos.x = ng2D.x;
+            pos.y = ng2D.y;
+        }]
+    });
+
+    /**
+     * Update sprite position based on ViewPort position
+     *
+     * * uses ng2DViewPort
+     * * uses ngPixijsStage
+     */
+    m.$s('ngPixijsPositionUpdateCycleWithViewPort', {
+        $require: ['ng2D', 'ngPixijsSprite'],
+
+        $removeEntity: ['$entity', function($entity) {
+            $entity.ngPixijsSprite.sprite.visible = true;
             $entity.ngPixijsSprite.sprite = null;
         }],
 
@@ -216,11 +271,9 @@
 
             var ng2D = $entity.ng2D;
             var pos = state.sprite.position;
-            pos.x = ng2D.x + ngPixijsStage._center.x;
-            pos.y = ng2D.y + ngPixijsStage._center.y;
 
-            pos.x -= ng2DViewPort.lookAt.x;
-            pos.y -= ng2DViewPort.lookAt.y;
+            pos.x = ng2D.x + ngPixijsStage._center.x - ng2DViewPort.lookAt.x;
+            pos.y = ng2D.y + ngPixijsStage._center.y - ng2DViewPort.lookAt.y;
         }]
     });
 
@@ -287,6 +340,12 @@
 
         fitToWindow: false,
 
+        /**
+         * If canvas element by default doesn't fit to screen
+         * so we just use delta size to body.clientWidth - canvas.clientWidth
+         */
+        adaptToContext: false,
+
         domId: '',
 
         /**
@@ -302,6 +361,12 @@
         _canvas: null,
         _stage: null,
         _center: {x:0.0, y:0.0},
+
+        /**
+         * tune width, height with some delta
+         */
+        _dWidth: 0,
+        _dHeight: 0,
 
         _visible: false,
 
@@ -380,6 +445,16 @@
                 window.onresize = function(e) {
                     self._onResize(e);
                 };
+
+                if (this.adaptToContext) {
+                    var dx = document.body.clientWidth - this._canvas.clientWidth;
+                    var dy = document.body.clientHeight - this._canvas.clientHeight;
+
+                    if (dx < 0) dx = 0;
+                    if (dy < 0) dy = 0;
+                    this._dWidth = dx;
+                    this._dHeight = dy;
+                }
                 self._onResize();
             }
         },
@@ -387,8 +462,9 @@
         _onResize: function(e) {
             this._onResizeDefaultHandler(e);
 
-            var widthRatio = window.innerWidth / this.width;
-            var heightRatio = window.innerHeight / this.height;
+            var widthRatio = (window.innerWidth - this._dWidth) / this.width;
+            var heightRatio = (window.innerHeight - this._dHeight) / this.height;
+
             var ratio = Math.min(widthRatio, heightRatio);
 
             if (ratio >= 1) {
@@ -397,8 +473,13 @@
 
             this._center.x = 0.5 * ratio * this.width;
             this._center.y = 0.5 * ratio * this.height;
+            /*
             this._canvas.width = ratio * this.width;
             this._canvas.height = ratio * this.height;
+            */
+
+            this._canvas.style.width = ratio * this.width + "px";
+            this._canvas.style.height = ratio * this.height + "px";
         },
 
         /**
@@ -468,6 +549,42 @@
                     ngResourceLoader.stopLoading(url);
                 });
         }
+    });
+
+    /**
+     * System for hiding sprite
+     */
+    m.$s('ngPixijsHideSprite', {
+        $require: ['ngHide', 'ngPixijsSprite'],
+
+        $addEntity: function($entity) {
+            $entity.ngPixijsSprite.sprite.visible = false;
+        },
+
+        $removeEntity: function($entity) {
+            if ($entity.ngPixijsSprite && $entity.ngPixijsSprite.sprite) {
+                $entity.ngPixijsSprite.sprite.visible = true;
+            }
+        }
+    });
+
+    /**
+     * System to bind sprite size to ng2DSize
+     */
+    m.$s('ngPixijsBindViewToSize', {
+        $require: ['ngBindViewToSize', 'ng2DSize', 'ngPixijsSprite'],
+
+        $update: ['$entity', function($entity) {
+            var ng2DSize = $entity.ng2DSize;
+            var sprite = $entity.ngPixijsSprite.sprite;
+
+            sprite.width = ng2DSize.width;
+            sprite.height = ng2DSize.height;
+
+            if ($entity.ngBindViewToSize.autoRemove) {
+                $entity.$remove('ngBindViewToSize');
+            }
+        }]
     });
 
     function clearLoaders() {
