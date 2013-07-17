@@ -121,7 +121,7 @@
     m.$s('ngPixijsSpriteFactory', {
         $require: ['ngSprite'],
 
-        $addEntity: ['ngPixijsStage', 'ngPixijsStaticZ', '$entity', 'ngResourceLoader', 'ngPixijsPositionUpdateCycle', function(ngPixijsStage, ngPixijsStaticZ, $entity, ngResourceLoader, ngPixijsPositionUpdateCycle) {
+        $addEntity: ['ngPixijsStage', 'ngPixijsStaticZ', '$entity', 'ngResourceLoader', 'ngPixijsPositionUpdateCycle', 'ngPixijsPositionUpdateCycleWithViewPort', function(ngPixijsStage, ngPixijsStaticZ, $entity, ngResourceLoader, ngPixijsPositionUpdateCycle, ngPixijsPositionUpdateCycleWithViewPort) {
             var state = $entity.ngSprite;
             if (state.spriteSheetUrl) {
                 if (isLoaded(state.spriteSheetUrl)) {
@@ -143,9 +143,16 @@
                 fitToSize(state, $entity.ng2DSize);
                 //hide sprite before update phase
 
-                if (ngPixijsPositionUpdateCycle) {
-                    state._sprite.position.x = -1048576;
-                    state._sprite.position.y = -1048576;
+                //TODO: need to find way to place right entity
+                // and haven't here any deps on update systems.
+                //
+                //here just check is we have system that update position,
+                //if so this system will updates position
+                //and we are temporary hide this entity (placing it far away)
+                //if haven't - just place entity at (x,y)
+                if (ngPixijsPositionUpdateCycle || ngPixijsPositionUpdateCycleWithViewPort) {
+                    state._sprite.position.x = -Number.MAX_VALUE;
+                    state._sprite.position.y = -Number.MAX_VALUE;
                 } else if ($entity.ng2D){
                     state._sprite.position.x = $entity.ng2D.x;
                     state._sprite.position.y = $entity.ng2D.y;
